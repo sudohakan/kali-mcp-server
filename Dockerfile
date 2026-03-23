@@ -113,21 +113,20 @@ RUN go install github.com/tomnomnom/waybackurls@latest 2>/dev/null || true && \
 # ============================================================
 # Layer 3: Python security tools (pip)
 # ============================================================
+# Critical packages — fail build if these don't install
 RUN pip install --no-cache-dir --break-system-packages \
-    arjun \
-    paramspider \
-    wfuzz \
-    commix \
-    frida-tools \
-    objection \
-    drozer \
-    certipy-ad \
-    bloodhound \
-    ldapdomaindump \
-    evil-winrm \
+    impacket \
     cvss \
     python-docx \
-    2>/dev/null || true
+    ldapdomaindump
+
+# Optional packages — best effort (some have complex deps)
+RUN pip install --no-cache-dir --break-system-packages \
+    certipy-ad 2>/dev/null || true
+RUN pip install --no-cache-dir --break-system-packages \
+    frida-tools objection 2>/dev/null || true
+RUN pip install --no-cache-dir --break-system-packages \
+    arjun paramspider wfuzz commix bloodhound 2>/dev/null || true
 
 # ============================================================
 # Layer 4: Exploit toolkits (git clone — each independent, fail-safe)
@@ -170,6 +169,18 @@ RUN pip install --no-cache-dir -v \
     pytest \
     pytest-asyncio \
     black
+
+# Install pentest Python packages INTO the venv (after venv is active)
+RUN pip install --no-cache-dir \
+    impacket \
+    cvss \
+    python-docx \
+    ldapdomaindump \
+    certipy-ad || true
+RUN pip install --no-cache-dir \
+    frida-tools objection || true
+RUN pip install --no-cache-dir \
+    arjun paramspider wfuzz commix bloodhound || true
 
 # Ensure output files exist
 RUN touch /app/command_output.txt

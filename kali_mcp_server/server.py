@@ -7,6 +7,8 @@ including tool registration, transport configuration, and server initialization.
 
 from typing import Any, Dict, List, Sequence, Union
 
+import sys
+
 import anyio
 import click
 import mcp.types as types
@@ -1108,8 +1110,8 @@ def start_sse_server(port: int, debug: bool) -> int:
     )
 
     # Run the server
-    print(f"Starting Kali MCP Server with SSE transport on port {port}")
-    print(f"Connect to this server using: http://localhost:{port}/sse")
+    print(f"Starting Kali MCP Server with SSE transport on port {port}", file=sys.stderr)
+    print(f"Connect to this server using: http://localhost:{port}/sse", file=sys.stderr)
     uvicorn.run(starlette_app, host="0.0.0.0", port=port)
     return 0
 
