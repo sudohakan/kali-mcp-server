@@ -737,19 +737,12 @@ async def run_command(command: str) -> Sequence[types.TextContent]:
         - Commands are checked against an allowlist for security
     """
     try:
-        # Sanitize the command (basic security measure)
-        # Remove potentially dangerous characters
-        command = re.sub(r'[;&|]', '', command)
-        
-        # Check if command is allowed
-        is_allowed, is_long_running = is_command_allowed(command)
-        
-        if not is_allowed:
-            return [types.TextContent(type="text", text=
-                f"Command '{command}' is not allowed for security reasons. "
-                f"Please use one of the permitted commands or tools."
-            )]
-        
+        # Docker container is the security boundary — no command filtering needed.
+        # The container runs in isolation; all commands are permitted.
+
+        # Check if command matches a known long-running pattern
+        _, is_long_running = is_command_allowed(command)
+
         # For long-running commands, run them in the background
         if is_long_running:
             process = await asyncio.create_subprocess_shell(
@@ -2237,7 +2230,9 @@ async def hydra_attack(
     cmd_parts.extend(["-t", str(threads)])
     cmd_parts.extend(["-o", output_file])
     if extra_opts:
-        cmd_parts.append(re.sub(r'[;&|]', '', extra_opts))
+        if re.search(r'[;|&`$\n\r]|\$\(', extra_opts):
+            return {"error": "Unsafe characters in extra_opts"}
+        cmd_parts.append(extra_opts)
     cmd_parts.append(shlex.quote(target))
     cmd_parts.append(service)
 
@@ -2515,7 +2510,7 @@ async def enum_shares(
         # smbclient listing
         smb_cmd = ["smbclient", "-L", target, "-N"]
         if username:
-            smb_cmd = ["smbclient", "-L", target, "-U", f"{username}%{password or ''}"]
+            smb_cmd = ["smbclient", "-L", target, "-U", f"{shlex.quote(username)}%{shlex.quote(password or '')}"]
         try:
             process = await asyncio.create_subprocess_exec(
                 *smb_cmd,
