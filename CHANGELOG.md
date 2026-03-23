@@ -4,6 +4,22 @@ All notable changes to this project are documented here. Format based on [Keep a
 
 This is a fork of [k3nn3dy-ai/kali-mcp](https://github.com/k3nn3dy-ai/kali-mcp). Version history starts from v1.0.0 local deployment.
 
+## [1.1.0] - 2026-03-23
+
+### Added
+- 13 new tools: nuclei, katana, gau, grpcurl, dalfox, arjun, paramspider, commix, feroxbuster, ffuf, semgrep, wfuzz (registered in ALLOWED_COMMANDS)
+- Exploit toolkits: PayloadsAllTheThings, SSTImap, jwt_tool, XSStrike, GraphQLmap, smuggler, NoSQLMap
+- Post-exploitation: linpeas, pspy, chisel
+- SecLists wordlists for fuzzing and enumeration
+- cvss and python-docx packages for scoring and reporting
+
+### Changed
+- Dockerfile expanded with Go-based tools, Python security tools, and cloned exploit repos
+- Session data now gitignored (was previously tracked)
+
+### Security
+- Removed tracked Finekra pentest session data from git history
+
 ## [1.0.0] - 2026-03-22
 
 ### Added

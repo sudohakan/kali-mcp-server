@@ -2,9 +2,9 @@
 
 # 🔐 Kali MCP Server
 
-**AI-assisted penetration testing with 35 security tools in a Docker container.**
+**AI-assisted penetration testing with 48 security tools in a Docker container.**
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue?style=flat-square)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/python-3.12%2B-brightgreen?style=flat-square)](https://python.org)
 [![Docker](https://img.shields.io/badge/docker-required-blue?style=flat-square)](https://docker.com)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
@@ -27,7 +27,7 @@ A Docker-containerized MCP server running on Kali Linux that gives AI assistants
 
 | Feature | Details |
 |:--------|:--------|
-| **35 security tools** | Network scanning, web testing, credential attacks, exploitation, encoding |
+| **48 security tools** | Network scanning, web testing, credential attacks, exploitation, encoding |
 | **Session management** | Create, switch, track sessions with full command history |
 | **Evidence collection** | Save outputs, generate reports (Markdown/JSON/text) |
 | **Credential store** | Per-session credential tracking for discovered creds |

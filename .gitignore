@@ -175,3 +175,7 @@ cython_debug/
 
 CLAUDE.md
 .DS_Store
+
+# Pentest reports and session data
+pentest-reports/
+sessions/
