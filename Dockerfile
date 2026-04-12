@@ -43,6 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     subfinder \
     gospider \
     testssl.sh \
+    exploitdb \
     # --- SMB/AD ---
     smbclient \
     enum4linux \
