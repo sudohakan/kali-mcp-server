@@ -15,8 +15,8 @@ Thank you for improving kali-mcp. This guide covers the Docker build workflow, h
 ### 1. Clone and build
 
 ```bash
-git clone https://github.com/sudohakan/kali-mcp.git
-cd kali-mcp
+git clone https://github.com/sudohakan/kali-mcp-server.git
+cd kali-mcp-server
 
 # Build the Docker image (first build pulls the Kali base — ~1 GB)
 docker compose build
@@ -106,7 +106,7 @@ docker compose run --rm kali-mcp-server your-tool --version
 ## Project Structure
 
 ```
-kali-mcp/
+kali-mcp-server/
 ├── kali_mcp_server/       # MCP tool handlers
 ├── main.py                # Entry point, server setup
 ├── tests/                 # Pytest test suite

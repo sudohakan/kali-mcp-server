@@ -52,7 +52,7 @@ This tool is designed for:
 If you discover a security vulnerability in kali-mcp itself (not in the bundled Kali tools):
 
 1. **Do not open a public GitHub issue.**
-2. Email **hakantpc@outlook.com.tr** with subject `[kali-mcp] Security Vulnerability`.
+2. Email **sudohakan@users.noreply.github.com** with subject `[kali-mcp] Security Vulnerability`.
 3. Include: description, reproduction steps, potential impact, and suggested fix (if any).
 4. You will receive a response within **5 business days**.
 5. We follow a **90-day disclosure timeline** — fixes will be published and credited before the deadline.

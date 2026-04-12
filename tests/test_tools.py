@@ -3,11 +3,24 @@ Tests for the tools module functionality.
 """
 
 
+import asyncio
 import pytest
 from unittest.mock import patch
 import mcp.types as types
 
 from kali_mcp_server.tools import fetch_website, is_command_allowed
+
+
+class DummyProcess:
+    async def communicate(self):
+        return b"", b""
+
+    async def wait(self):
+        return 0
+
+
+async def no_sleep(*_args, **_kwargs):
+    return None
 
 
 @pytest.fixture(autouse=True)
@@ -126,6 +139,68 @@ async def test_exploit_search():
     result = await exploit_search("apache", "web")
     assert len(result) == 1
     assert "Exploit search results for 'apache'" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test_web_enumeration_uses_structured_argv(monkeypatch, tmp_path):
+    from kali_mcp_server import tools as tools_module
+
+    calls = []
+
+    async def fake_exec(*argv, **kwargs):
+        calls.append(argv)
+        return DummyProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr(asyncio, "sleep", no_sleep)
+    monkeypatch.setattr(tools_module, "get_active_session_output_path", lambda name: str(tmp_path / name))
+
+    result = await tools_module.web_enumeration("evil;touch/pwn", "full")
+
+    assert len(result) == 1
+    assert any(call[:3] == ("curl", "-I", "http://evil;touch/pwn") for call in calls)
+    assert any(call[0] == "gobuster" and call[1] == "dir" for call in calls)
+    assert all(isinstance(call, tuple) for call in calls)
+
+
+@pytest.mark.asyncio
+async def test_subdomain_enum_uses_structured_argv(monkeypatch, tmp_path):
+    from kali_mcp_server import tools as tools_module
+
+    calls = []
+
+    async def fake_exec(*argv, **kwargs):
+        calls.append(argv)
+        return DummyProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr(asyncio, "sleep", no_sleep)
+    monkeypatch.setattr(tools_module, "get_active_session_output_path", lambda name: str(tmp_path / name))
+
+    result = await tools_module.subdomain_enum("evil;touch.example.com", "comprehensive")
+
+    assert len(result) == 1
+    assert any(call[0] == "waybackurls" and call[1] == "evil;touch.example.com" for call in calls)
+    assert any(call[0] == "subfinder" and call[2] == "evil;touch.example.com" for call in calls)
+
+
+@pytest.mark.asyncio
+async def test_ssl_analysis_uses_structured_argv(monkeypatch, tmp_path):
+    from kali_mcp_server import tools as tools_module
+
+    calls = []
+
+    async def fake_exec(*argv, **kwargs):
+        calls.append(argv)
+        return DummyProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.chdir(tmp_path)
+
+    result = await tools_module.ssl_analysis("evil.example.com", 443)
+
+    assert len(result) == 1
+    assert any(call[:5] == ("testssl.sh", "--quiet", "--color", "0", "evil.example.com:443") for call in calls)
 
 
 @pytest.mark.asyncio

@@ -19,7 +19,7 @@
 
 ## What is this?
 
-A Docker-containerized MCP server running on Kali Linux that gives AI assistants access to 35 security and penetration testing tools. Communicate via SSE on port 8000 and let Claude run nmap scans, enumerate subdomains, test SSL/TLS, crack hashes, and generate payloads through natural language.
+A Docker-containerized MCP server running on Kali Linux that gives AI assistants access to 48 security and penetration testing tools. Communicate via SSE on port 8000 and let Claude run nmap scans, enumerate subdomains, test SSL/TLS, crack hashes, and generate payloads through natural language.
 
 ---
 
@@ -177,7 +177,7 @@ kali-mcp-server/
 ├── kali_mcp_server/
 │   ├── __init__.py
 │   ├── server.py          # MCP server setup
-│   ├── tools.py           # 35 tool implementations
+│   ├── tools.py           # 48 tool implementations
 │   └── utils.py           # Shared utilities
 ├── sessions/              # Pentest session data
 ├── tests/

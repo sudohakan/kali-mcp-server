@@ -2,12 +2,14 @@
 Tests for the server module functionality.
 """
 
-from unittest.mock import patch
+import sys
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, patch
 
 import mcp.types as types
 import pytest
 
-from kali_mcp_server.server import handle_tool_request
+from kali_mcp_server.server import handle_tool_request, start_stdio_server
 
 
 @pytest.mark.asyncio
@@ -311,3 +313,27 @@ async def test_handle_session_results():
     with patch("kali_mcp_server.server.session_results", mock_fn):
         result = await handle_tool_request("session_results", {"limit": 2, "lines": 40})
         assert "results 2/40" in result[0].text
+
+
+def test_start_stdio_server_logs_to_stderr():
+    """stdio startup messages must avoid stdout to keep MCP handshake clean."""
+
+    @asynccontextmanager
+    async def fake_stdio_server():
+        yield ("reader", "writer")
+
+    mock_run = AsyncMock()
+
+    with (
+        patch("mcp.server.stdio.stdio_server", fake_stdio_server),
+        patch("kali_mcp_server.server.kali_server.run", mock_run),
+        patch("builtins.print") as mock_print,
+    ):
+        exit_code = start_stdio_server(debug=False)
+
+    assert exit_code == 0
+    mock_run.assert_awaited_once()
+    mock_print.assert_called_once_with(
+        "Starting Kali MCP Server with stdio transport",
+        file=sys.stderr,
+    )

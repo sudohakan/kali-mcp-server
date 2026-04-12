@@ -176,6 +176,9 @@ cython_debug/
 CLAUDE.md
 .DS_Store
 
+# Graphify output
+graphify-out/
+
 # Pentest reports and session data
 pentest-reports/
 sessions/

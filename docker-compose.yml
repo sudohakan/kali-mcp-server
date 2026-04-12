@@ -10,10 +10,7 @@ services:
     # Root required for raw sockets (nmap SYN scans, tcpdump, arpspoof, etc.)
     user: "0:0"
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./sessions:/app/sessions:rw
-      - /mnt/c/dev/pentest-framework/scripts:/pentest/scripts:ro
-      - /mnt/c/dev/pentest-framework/templates:/pentest/templates:ro
-      - /mnt/c/dev/pentest-framework/data:/pentest/data:rw
     restart: unless-stopped

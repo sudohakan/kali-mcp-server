@@ -200,6 +200,50 @@ ALLOWED_COMMANDS = [
     ("unzip", False),
 ]
 
+
+def _q(value: object) -> str:
+    return shlex.quote(str(value))
+
+
+def _safe_fragment(value: object) -> str:
+    fragment = re.sub(r"[^A-Za-z0-9._-]+", "_", str(value))
+    return fragment.strip("._-") or "item"
+
+
+def _ensure_http_url(value: str) -> str:
+    return value if value.startswith(("http://", "https://")) else f"http://{value}"
+
+
+async def _spawn_background_exec(
+    argv: Sequence[str],
+    stdout_path: Optional[str] = None,
+    stderr_path: Optional[str] = None,
+) -> asyncio.subprocess.Process:
+    stdout_handle = None
+    stderr_handle = None
+    try:
+        stdout = asyncio.subprocess.DEVNULL
+        stderr = asyncio.subprocess.DEVNULL
+
+        if stdout_path:
+            os.makedirs(os.path.dirname(stdout_path) or ".", exist_ok=True)
+            stdout_handle = open(stdout_path, "ab")
+            stdout = stdout_handle
+
+        if stderr_path:
+            os.makedirs(os.path.dirname(stderr_path) or ".", exist_ok=True)
+            stderr_handle = open(stderr_path, "ab")
+            stderr = stderr_handle
+        elif stdout_path:
+            stderr = asyncio.subprocess.STDOUT
+
+        return await asyncio.create_subprocess_exec(*argv, stdout=stdout, stderr=stderr)
+    finally:
+        if stdout_handle:
+            stdout_handle.close()
+        if stderr_handle and stderr_handle is not stdout_handle:
+            stderr_handle.close()
+
 # --- Session Management Backend ---
 SESSIONS_DIR = "sessions"
 ACTIVE_SESSION_FILE = os.path.join(SESSIONS_DIR, "active_session.txt")
@@ -919,44 +963,40 @@ async def vulnerability_scan(target: str, scan_type: str = "comprehensive") -> S
         List containing TextContent with scan results
     """
     timestamp = asyncio.get_event_loop().time()
+    safe_target = _safe_fragment(target)
     output_file = get_active_session_output_path(
-        f"vuln_scan_{target.replace('.', '_')}_{int(timestamp)}.txt"
+        f"vuln_scan_{safe_target}_{int(timestamp)}.txt"
     )
-    
-    scan_commands = []
-    
+
+    scan_jobs: list[tuple[list[str], str]] = []
+
     if scan_type == "quick":
-        scan_commands = [
-            f"nmap -F -sV {target}",
-            f"nikto -h {target} -Format txt -o {output_file}"
+        scan_jobs = [
+            (["nmap", "-F", "-sV", target], output_file),
+            (["nikto", "-h", target, "-Format", "txt", "-o", f"{output_file}_nikto"], output_file),
         ]
     elif scan_type == "comprehensive":
-        scan_commands = [
-            f"nmap -sS -sV -O -p- {target}",
-            f"nikto -h {target} -Format txt -o {output_file}",
-            f"gobuster dir -u http://{target} -w /usr/share/wordlists/dirb/common.txt -o {output_file}_dirs",
-            f"whois {target}"
+        scan_jobs = [
+            (["nmap", "-sS", "-sV", "-O", "-p-", target], output_file),
+            (["nikto", "-h", target, "-Format", "txt", "-o", f"{output_file}_nikto"], output_file),
+            (["gobuster", "dir", "-u", _ensure_http_url(target), "-w", "/usr/share/wordlists/dirb/common.txt", "-o", f"{output_file}_dirs"], output_file),
+            (["whois", target], output_file),
         ]
     elif scan_type == "web":
-        scan_commands = [
-            f"nikto -h {target} -Format txt -o {output_file}",
-            f"gobuster dir -u http://{target} -w /usr/share/wordlists/dirb/common.txt -o {output_file}_dirs",
-            f"sqlmap --url http://{target} --batch --random-agent --level 1"
+        scan_jobs = [
+            (["nikto", "-h", target, "-Format", "txt", "-o", f"{output_file}_nikto"], output_file),
+            (["gobuster", "dir", "-u", _ensure_http_url(target), "-w", "/usr/share/wordlists/dirb/common.txt", "-o", f"{output_file}_dirs"], output_file),
+            (["sqlmap", "--url", _ensure_http_url(target), "--batch", "--random-agent", "--level", "1"], output_file),
         ]
     elif scan_type == "network":
-        scan_commands = [
-            f"nmap -sS -sV -O -p- {target}",
-            f"nmap --script vuln {target}",
-            f"whois {target}"
+        scan_jobs = [
+            (["nmap", "-sS", "-sV", "-O", "-p-", target], output_file),
+            (["nmap", "--script", "vuln", target], output_file),
+            (["whois", target], output_file),
         ]
-    
-    # Execute all commands in background
-    for cmd in scan_commands:
-        await asyncio.create_subprocess_shell(
-            f"{cmd} >> {output_file} 2>&1 &",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
+
+    for argv, stdout_path in scan_jobs:
+        await _spawn_background_exec(argv, stdout_path=stdout_path)
 
     append_session_history(
         action=f"vulnerability_scan ({scan_type})",
@@ -966,7 +1006,7 @@ async def vulnerability_scan(target: str, scan_type: str = "comprehensive") -> S
     return [types.TextContent(type="text", text=
         f"🚀 Starting {scan_type} vulnerability scan on {target}\n\n"
         f"📋 Commands being executed:\n"
-        f"{chr(10).join(f'• {cmd}' for cmd in scan_commands)}\n\n"
+        f"{chr(10).join(f'• {shlex.join(argv)}' for argv, _ in scan_jobs)}\n\n"
         f"📁 Results will be saved to: {output_file}\n"
         f"⏱️  Check progress with: cat {output_file}\n"
         f"🔍 Monitor processes with: ps aux | grep -E '(nmap|nikto|gobuster|sqlmap)'"
@@ -985,45 +1025,38 @@ async def web_enumeration(target: str, enumeration_type: str = "full") -> Sequen
         List containing TextContent with enumeration results
     """
     timestamp = asyncio.get_event_loop().time()
+    target = _ensure_http_url(target)
+    safe_target = _safe_fragment(target)
     output_file = get_active_session_output_path(
-        f"web_enum_{target.replace('://', '_').replace('/', '_')}_{int(timestamp)}.txt"
+        f"web_enum_{safe_target}_{int(timestamp)}.txt"
     )
-    
-    # Ensure target has protocol
-    if not target.startswith(('http://', 'https://')):
-        target = f"http://{target}"
-    
-    enum_commands = []
-    
+
+    enum_jobs: list[tuple[list[str], str]] = []
+
     if enumeration_type == "basic":
-        enum_commands = [
-            f"nikto -h {target} -Format txt -o {output_file}",
-            f"gobuster dir -u {target} -w /usr/share/wordlists/dirb/common.txt -o {output_file}_dirs"
+        enum_jobs = [
+            (["nikto", "-h", target, "-Format", "txt", "-o", f"{output_file}_nikto"], output_file),
+            (["gobuster", "dir", "-u", target, "-w", "/usr/share/wordlists/dirb/common.txt", "-o", f"{output_file}_dirs"], output_file),
         ]
     elif enumeration_type == "full":
-        enum_commands = [
-            f"nikto -h {target} -Format txt -o {output_file}",
-            f"gobuster dir -u {target} -w /usr/share/wordlists/dirb/common.txt -o {output_file}_dirs",
-            f"gobuster vhost -u {target} -w /usr/share/wordlists/SecLists/Discovery/DNS/subdomains-top1million-5000.txt -o {output_file}_vhosts",
-            f"curl -I {target}",
-            f"curl -s {target} | grep -i 'server\\|powered-by\\|x-'"
+        enum_jobs = [
+            (["nikto", "-h", target, "-Format", "txt", "-o", f"{output_file}_nikto"], output_file),
+            (["gobuster", "dir", "-u", target, "-w", "/usr/share/wordlists/dirb/common.txt", "-o", f"{output_file}_dirs"], output_file),
+            (["gobuster", "vhost", "-u", target, "-w", "/usr/share/wordlists/SecLists/Discovery/DNS/subdomains-top1million-5000.txt", "-o", f"{output_file}_vhosts"], output_file),
+            (["curl", "-I", target], output_file),
         ]
     elif enumeration_type == "aggressive":
-        enum_commands = [
-            f"nikto -h {target} -Format txt -o {output_file}",
-            f"gobuster dir -u {target} -w /usr/share/wordlists/dirb/common.txt -o {output_file}_dirs",
-            f"gobuster vhost -u {target} -w /usr/share/wordlists/SecLists/Discovery/DNS/subdomains-top1million-5000.txt -o {output_file}_vhosts",
-            f"sqlmap --url {target} --batch --random-agent --level 2",
-            f"dirb {target} /usr/share/wordlists/dirb/common.txt -o {output_file}_dirb"
+        enum_jobs = [
+            (["nikto", "-h", target, "-Format", "txt", "-o", f"{output_file}_nikto"], output_file),
+            (["gobuster", "dir", "-u", target, "-w", "/usr/share/wordlists/dirb/common.txt", "-o", f"{output_file}_dirs"], output_file),
+            (["gobuster", "vhost", "-u", target, "-w", "/usr/share/wordlists/SecLists/Discovery/DNS/subdomains-top1million-5000.txt", "-o", f"{output_file}_vhosts"], output_file),
+            (["sqlmap", "--url", target, "--batch", "--random-agent", "--level", "2"], output_file),
+            (["dirb", target, "/usr/share/wordlists/dirb/common.txt", "-o", f"{output_file}_dirb"], output_file),
+            (["curl", "-I", target], output_file),
         ]
-    
-    # Execute commands
-    for cmd in enum_commands:
-        await asyncio.create_subprocess_shell(
-            f"{cmd} >> {output_file} 2>&1 &",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
+
+    for argv, stdout_path in enum_jobs:
+        await _spawn_background_exec(argv, stdout_path=stdout_path)
 
     append_session_history(
         action=f"web_enumeration ({enumeration_type})",
@@ -1033,7 +1066,7 @@ async def web_enumeration(target: str, enumeration_type: str = "full") -> Sequen
     return [types.TextContent(type="text", text=
         f"🌐 Starting {enumeration_type} web enumeration on {target}\n\n"
         f"🔍 Enumeration tasks:\n"
-        f"{chr(10).join(f'• {cmd}' for cmd in enum_commands)}\n\n"
+        f"{chr(10).join(f'• {shlex.join(argv)}' for argv, _ in enum_jobs)}\n\n"
         f"📁 Results will be saved to: {output_file}\n"
         f"⏱️  Check progress with: cat {output_file}\n"
         f"📊 Monitor with: tail -f {output_file}"
@@ -1052,40 +1085,36 @@ async def network_discovery(target: str, discovery_type: str = "comprehensive") 
         List containing TextContent with discovery results
     """
     timestamp = asyncio.get_event_loop().time()
+    safe_target = _safe_fragment(target)
     output_file = get_active_session_output_path(
-        f"network_discovery_{target.replace('/', '_')}_{int(timestamp)}.txt"
+        f"network_discovery_{safe_target}_{int(timestamp)}.txt"
     )
-    
-    discovery_commands = []
-    
+
+    discovery_jobs: list[tuple[list[str], str]] = []
+
     if discovery_type == "quick":
-        discovery_commands = [
-            f"nmap -sn {target}",
-            f"nmap -F {target}",
-            f"ping -c 3 {target}"
+        discovery_jobs = [
+            (["nmap", "-sn", target], output_file),
+            (["nmap", "-F", target], output_file),
+            (["ping", "-c", "3", target], output_file),
         ]
     elif discovery_type == "comprehensive":
-        discovery_commands = [
-            f"nmap -sn {target}",
-            f"nmap -sS -sV -O -p- {target}",
-            f"nmap --script discovery {target}",
-            f"ping -c 5 {target}",
-            f"traceroute {target}"
+        discovery_jobs = [
+            (["nmap", "-sn", target], output_file),
+            (["nmap", "-sS", "-sV", "-O", "-p-", target], output_file),
+            (["nmap", "--script", "discovery", target], output_file),
+            (["ping", "-c", "5", target], output_file),
+            (["traceroute", target], output_file),
         ]
     elif discovery_type == "stealth":
-        discovery_commands = [
-            f"nmap -sS -sV --version-intensity 0 -p 80,443,22,21,25,53 {target}",
-            f"nmap --script default {target}",
-            f"ping -c 2 {target}"
+        discovery_jobs = [
+            (["nmap", "-sS", "-sV", "--version-intensity", "0", "-p", "80,443,22,21,25,53", target], output_file),
+            (["nmap", "--script", "default", target], output_file),
+            (["ping", "-c", "2", target], output_file),
         ]
-    
-    # Execute commands
-    for cmd in discovery_commands:
-        await asyncio.create_subprocess_shell(
-            f"{cmd} >> {output_file} 2>&1 &",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
+
+    for argv, stdout_path in discovery_jobs:
+        await _spawn_background_exec(argv, stdout_path=stdout_path)
 
     append_session_history(
         action=f"network_discovery ({discovery_type})",
@@ -1095,7 +1124,7 @@ async def network_discovery(target: str, discovery_type: str = "comprehensive") 
     return [types.TextContent(type="text", text=
         f"🔍 Starting {discovery_type} network discovery on {target}\n\n"
         f"🌐 Discovery tasks:\n"
-        f"{chr(10).join(f'• {cmd}' for cmd in discovery_commands)}\n\n"
+        f"{chr(10).join(f'• {shlex.join(argv)}' for argv, _ in discovery_jobs)}\n\n"
         f"📁 Results will be saved to: {output_file}\n"
         f"⏱️  Check progress with: cat {output_file}\n"
         f"📊 Monitor with: tail -f {output_file}"
@@ -1114,44 +1143,45 @@ async def exploit_search(search_term: str, search_type: str = "all") -> Sequence
         List containing TextContent with search results
     """
     timestamp = asyncio.get_event_loop().time()
-    output_file = f"exploit_search_{search_term.replace(' ', '_')}_{int(timestamp)}.txt"
-    
-    search_commands = []
-    
+    output_file = f"exploit_search_{_safe_fragment(search_term)}_{int(timestamp)}.txt"
+
+    search_jobs: list[list[str]] = []
+
     if search_type == "all":
-        search_commands = [
-            f"searchsploit {search_term}",
-            f"searchsploit {search_term} --exclude=/dos/"
+        search_jobs = [
+            ["searchsploit", search_term],
+            ["searchsploit", search_term, "--exclude=/dos/"],
         ]
     elif search_type == "web":
-        search_commands = [
-            f"searchsploit {search_term} web",
-            f"searchsploit {search_term} --type web"
+        search_jobs = [
+            ["searchsploit", search_term, "web"],
+            ["searchsploit", search_term, "--type", "web"],
         ]
     elif search_type == "remote":
-        search_commands = [
-            f"searchsploit {search_term} remote",
-            f"searchsploit {search_term} --type remote"
+        search_jobs = [
+            ["searchsploit", search_term, "remote"],
+            ["searchsploit", search_term, "--type", "remote"],
         ]
     elif search_type == "local":
-        search_commands = [
-            f"searchsploit {search_term} local",
-            f"searchsploit {search_term} --type local"
+        search_jobs = [
+            ["searchsploit", search_term, "local"],
+            ["searchsploit", search_term, "--type", "local"],
         ]
     elif search_type == "dos":
-        search_commands = [
-            f"searchsploit {search_term} dos",
-            f"searchsploit {search_term} --type dos"
+        search_jobs = [
+            ["searchsploit", search_term, "dos"],
+            ["searchsploit", search_term, "--type", "dos"],
         ]
-    
-    # Execute search commands
-    for cmd in search_commands:
-        process = await asyncio.create_subprocess_shell(
-            f"{cmd} >> {output_file} 2>&1",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await process.communicate()
+
+    os.makedirs(os.path.dirname(output_file) or ".", exist_ok=True)
+    with open(output_file, "ab") as output_handle:
+        for argv in search_jobs:
+            process = await asyncio.create_subprocess_exec(
+                *argv,
+                stdout=output_handle,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            await process.wait()
     
     # Read results
     try:
@@ -1323,12 +1353,12 @@ async def file_analysis(filepath: str) -> Sequence[types.TextContent]:
     analysis_file = f"file_analysis_{safe_filename}_{timestamp}.txt"
     
     analysis_commands = [
-        f"file {filepath}",
-        f"strings {filepath} | head -50",
-        f"sha256sum {filepath}",
-        f"ls -la {filepath}",
-        f"wc -l {filepath}",
-        f"head -10 {filepath}"
+        f"file {shlex.quote(filepath)}",
+        f"strings {shlex.quote(filepath)} | head -50",
+        f"sha256sum {shlex.quote(filepath)}",
+        f"ls -la {shlex.quote(filepath)}",
+        f"wc -l {shlex.quote(filepath)}",
+        f"head -10 {shlex.quote(filepath)}"
     ]
     
     analysis_results = []
@@ -1481,23 +1511,24 @@ async def spider_website(url: str, depth: int = 2, threads: int = 10) -> Sequenc
     import datetime
     
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_url = url.replace('://', '_').replace('/', '_').replace('.', '_')
-    output_file = f"spider_{safe_url}_{timestamp}.txt"
-    
-    # Ensure URL has protocol
-    if not url.startswith(('http://', 'https://')):
-        url = f"http://{url}"
-    
+    url = _ensure_http_url(url)
+    output_file = f"spider_{_safe_fragment(url)}_{timestamp}.txt"
+
     try:
-        # Use gospider for comprehensive crawling
-        spider_cmd = f"gospider -s {url} -d {depth} -c {threads} -o {output_file}"
-        
-        process = await asyncio.create_subprocess_shell(
-            spider_cmd,
+        process = await asyncio.create_subprocess_exec(
+            "gospider",
+            "-s",
+            url,
+            "-d",
+            str(depth),
+            "-c",
+            str(threads),
+            "-o",
+            output_file,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=300.0)
+        await asyncio.wait_for(process.communicate(), timeout=300.0)
         
         # Read results
         results = "Spidering completed"
@@ -1536,46 +1567,45 @@ async def form_analysis(url: str, scan_type: str = "comprehensive") -> Sequence[
     import datetime
     
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_url = url.replace('://', '_').replace('/', '_').replace('.', '_')
-    output_file = f"form_analysis_{safe_url}_{timestamp}.txt"
-    
-    # Ensure URL has protocol
-    if not url.startswith(('http://', 'https://')):
-        url = f"http://{url}"
-    
+    url = _ensure_http_url(url)
+    output_file = f"form_analysis_{_safe_fragment(url)}_{timestamp}.txt"
+
     try:
-        # Use httpx-toolkit for form discovery
         if scan_type == "basic":
-            form_cmd = f"httpx -u {url} -mc 200 -silent -o {output_file}"
+            form_argv = ["httpx", "-u", url, "-mc", "200", "-silent", "-o", output_file]
         elif scan_type == "comprehensive":
-            form_cmd = f"httpx -u {url} -mc 200,301,302,403 -silent -o {output_file}"
-        else:  # aggressive
-            form_cmd = f"httpx -u {url} -mc all -silent -o {output_file}"
-        
-        process = await asyncio.create_subprocess_shell(
-            form_cmd,
+            form_argv = ["httpx", "-u", url, "-mc", "200,301,302,403", "-silent", "-o", output_file]
+        else:
+            form_argv = ["httpx", "-u", url, "-mc", "all", "-silent", "-o", output_file]
+
+        process = await asyncio.create_subprocess_exec(
+            *form_argv,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=180.0)
-        
-        # Additional form analysis with curl
-        curl_cmd = f"curl -s -I {url} | grep -i 'content-type'"
-        curl_process = await asyncio.create_subprocess_shell(
-            curl_cmd,
+        await asyncio.wait_for(process.communicate(), timeout=180.0)
+
+        curl_process = await asyncio.create_subprocess_exec(
+            "curl",
+            "-s",
+            "-I",
+            url,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
         )
-        curl_stdout, curl_stderr = await curl_process.communicate()
-        
-        # Read results
+        curl_stdout, _ = await curl_process.communicate()
+
         try:
-            with open(output_file, 'r') as f:
+            with open(output_file, "r") as f:
                 results = f.read()
         except FileNotFoundError:
             results = "No results file generated"
-        
-        content_type = curl_stdout.decode().strip() if curl_stdout else "Unknown"
+
+        content_type = "Unknown"
+        if curl_stdout:
+            header_match = re.search(r"^content-type:\s*(.+)$", curl_stdout.decode(), re.I | re.M)
+            if header_match:
+                content_type = header_match.group(1).strip()
         
         return [types.TextContent(type="text", text=
             f"📝 Form analysis completed!\n\n"
@@ -1606,24 +1636,20 @@ async def header_analysis(url: str, include_security: bool = True) -> Sequence[t
     import datetime
     
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_url = url.replace('://', '_').replace('/', '_').replace('.', '_')
-    output_file = f"header_analysis_{safe_url}_{timestamp}.txt"
-    
-    # Ensure URL has protocol
-    if not url.startswith(('http://', 'https://')):
-        url = f"http://{url}"
-    
+    url = _ensure_http_url(url)
+    output_file = f"header_analysis_{_safe_fragment(url)}_{timestamp}.txt"
+
     try:
-        # Basic header analysis
-        header_cmd = f"curl -s -I {url}"
-        
-        process = await asyncio.create_subprocess_shell(
-            header_cmd,
+        process = await asyncio.create_subprocess_exec(
+            "curl",
+            "-s",
+            "-I",
+            url,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)
-        
+        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=60.0)
+
         headers_output = stdout.decode() if stdout else ""
         
         # Security header analysis
@@ -1689,26 +1715,26 @@ async def ssl_analysis(url: str, port: int = 443) -> Sequence[types.TextContent]
     import datetime
     
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_url = url.replace('://', '_').replace('/', '_').replace('.', '_')
-    output_file = f"ssl_analysis_{safe_url}_{timestamp}.txt"
-    
-    # Extract domain from URL
-    domain = url.replace('http://', '').replace('https://', '').split('/')[0]
-    
+    url = _ensure_http_url(url)
+    output_file = f"ssl_analysis_{_safe_fragment(url)}_{timestamp}.txt"
+
+    domain = url.replace("http://", "").replace("https://", "").split("/")[0]
+
     try:
-        # Use testssl.sh for comprehensive SSL analysis
-        ssl_cmd = f"testssl.sh --quiet --color 0 {domain}:{port} > {output_file} 2>&1"
-        
-        process = await asyncio.create_subprocess_shell(
-            ssl_cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=300.0)
-        
-        # Read results
+        with open(output_file, "ab") as output_handle:
+            process = await asyncio.create_subprocess_exec(
+                "testssl.sh",
+                "--quiet",
+                "--color",
+                "0",
+                f"{domain}:{port}",
+                stdout=output_handle,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            await asyncio.wait_for(process.wait(), timeout=300.0)
+
         try:
-            with open(output_file, 'r') as f:
+            with open(output_file, "r") as f:
                 results = f.read()
         except FileNotFoundError:
             results = "No results file generated"
@@ -1750,56 +1776,62 @@ async def subdomain_enum(url: str, enum_type: str = "comprehensive") -> Sequence
         List containing TextContent with subdomain enumeration results
     """
     import datetime
-    
+
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_url = url.replace('://', '_').replace('/', '_').replace('.', '_')
+    url = _ensure_http_url(url)
+    safe_url = _safe_fragment(url)
     output_file = f"subdomain_enum_{safe_url}_{timestamp}.txt"
-    
-    # Extract domain from URL
-    domain = url.replace('http://', '').replace('https://', '').split('/')[0]
-    
+    wayback_file = f"{output_file}_wayback_raw"
+
+    domain = urllib.parse.urlsplit(url).hostname or url.replace("http://", "").replace("https://", "").split("/")[0]
+
     try:
-        enum_commands = []
-        
+        enum_jobs: list[tuple[list[str], str]] = []
+
         if enum_type == "basic":
-            enum_commands = [
-                f"subfinder -d {domain} -o {output_file}_subfinder",
-                f"amass enum -d {domain} -o {output_file}_amass"
+            enum_jobs = [
+                (["subfinder", "-d", domain, "-o", f"{output_file}_subfinder"], output_file),
+                (["amass", "enum", "-d", domain, "-o", f"{output_file}_amass"], output_file),
             ]
         elif enum_type == "comprehensive":
-            enum_commands = [
-                f"subfinder -d {domain} -o {output_file}_subfinder",
-                f"amass enum -d {domain} -o {output_file}_amass",
-                f"waybackurls {domain} | grep -o '[^/]*\\.{domain}' | sort -u > {output_file}_wayback"
+            enum_jobs = [
+                (["subfinder", "-d", domain, "-o", f"{output_file}_subfinder"], output_file),
+                (["amass", "enum", "-d", domain, "-o", f"{output_file}_amass"], output_file),
             ]
-        else:  # aggressive
-            enum_commands = [
-                f"subfinder -d {domain} -o {output_file}_subfinder",
-                f"amass enum -d {domain} -o {output_file}_amass",
-                f"waybackurls {domain} | grep -o '[^/]*\\.{domain}' | sort -u > {output_file}_wayback",
-                f"gospider -s https://{domain} -d 1 -c 5 -o {output_file}_gospider"
+        else:
+            enum_jobs = [
+                (["subfinder", "-d", domain, "-o", f"{output_file}_subfinder"], output_file),
+                (["amass", "enum", "-d", domain, "-o", f"{output_file}_amass"], output_file),
+                (["gospider", "-s", f"https://{domain}", "-d", "1", "-c", "5", "-o", f"{output_file}_gospider"], output_file),
             ]
-        
-        # Execute commands
-        for cmd in enum_commands:
-            await asyncio.create_subprocess_shell(
-                f"{cmd} >> {output_file} 2>&1 &",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-        
-        # Wait for completion
+
+        for argv, stdout_path in enum_jobs:
+            await _spawn_background_exec(argv, stdout_path=stdout_path)
+
+        if enum_type in ("comprehensive", "aggressive"):
+            await _spawn_background_exec(["waybackurls", domain], stdout_path=wayback_file, stderr_path=output_file)
+
         await asyncio.sleep(30)
-        
-        # Combine results
+
         combined_results = ""
-        try:
-            with open(output_file, 'r') as f:
-                combined_results = f.read()
-        except FileNotFoundError:
-            combined_results = "No results file generated"
-        
-        # Count unique subdomains
+        for result_path in [output_file, f"{output_file}_subfinder", f"{output_file}_amass", wayback_file]:
+            if os.path.exists(result_path):
+                try:
+                    with open(result_path, "r") as f:
+                        combined_results += f.read() + "\n"
+                except Exception:
+                    pass
+
+        if os.path.exists(wayback_file):
+            try:
+                with open(wayback_file, "r") as f:
+                    raw_wayback = f.read()
+                filtered = sorted(set(re.findall(rf"[^/\s]*\.{re.escape(domain)}", raw_wayback)))
+                if filtered:
+                    combined_results += "\n".join(filtered) + "\n"
+            except Exception:
+                pass
+
         subdomain_count = len(set([line.strip() for line in combined_results.split('\n') if domain in line and line.strip()]))
         
         return [types.TextContent(type="text", text=
@@ -1827,51 +1859,42 @@ async def web_audit(url: str, audit_type: str = "comprehensive") -> Sequence[typ
         List containing TextContent with audit results
     """
     import datetime
-    
+
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_url = url.replace('://', '_').replace('/', '_').replace('.', '_')
-    output_file = f"web_audit_{safe_url}_{timestamp}.txt"
-    
-    # Ensure URL has protocol
-    if not url.startswith(('http://', 'https://')):
-        url = f"http://{url}"
-    
+    url = _ensure_http_url(url)
+    output_file = f"web_audit_{_safe_fragment(url)}_{timestamp}.txt"
+    domain = urllib.parse.urlsplit(url).hostname or url.replace("http://", "").replace("https://", "").split("/")[0]
+
     try:
-        audit_commands = []
-        
+        audit_jobs: list[tuple[list[str], str]] = []
+
         if audit_type == "basic":
-            audit_commands = [
-                f"nikto -h {url} -Format txt -o {output_file}_nikto",
-                f"gobuster dir -u {url} -w /usr/share/wordlists/dirb/common.txt -o {output_file}_dirs"
+            audit_jobs = [
+                (["nikto", "-h", url, "-Format", "txt", "-o", f"{output_file}_nikto"], output_file),
+                (["gobuster", "dir", "-u", url, "-w", "/usr/share/wordlists/dirb/common.txt", "-o", f"{output_file}_dirs"], output_file),
             ]
         elif audit_type == "comprehensive":
-            audit_commands = [
-                f"nikto -h {url} -Format txt -o {output_file}_nikto",
-                f"gobuster dir -u {url} -w /usr/share/wordlists/dirb/common.txt -o {output_file}_dirs",
-                f"gobuster vhost -u {url} -w /usr/share/wordlists/SecLists/Discovery/DNS/subdomains-top1million-5000.txt -o {output_file}_vhosts",
-                f"sqlmap --url {url} --batch --random-agent --level 1 --output-dir {output_file}_sqlmap",
-                f"curl -I {url} | grep -i 'server\\|x-powered-by\\|x-'"
+            audit_jobs = [
+                (["nikto", "-h", url, "-Format", "txt", "-o", f"{output_file}_nikto"], output_file),
+                (["gobuster", "dir", "-u", url, "-w", "/usr/share/wordlists/dirb/common.txt", "-o", f"{output_file}_dirs"], output_file),
+                (["gobuster", "vhost", "-u", url, "-w", "/usr/share/wordlists/SecLists/Discovery/DNS/subdomains-top1million-5000.txt", "-o", f"{output_file}_vhosts"], output_file),
+                (["sqlmap", "--url", url, "--batch", "--random-agent", "--level", "1", "--output-dir", f"{output_file}_sqlmap"], output_file),
+                (["curl", "-I", url], output_file),
             ]
-        else:  # aggressive
-            audit_commands = [
-                f"nikto -h {url} -Format txt -o {output_file}_nikto",
-                f"gobuster dir -u {url} -w /usr/share/wordlists/dirb/common.txt -o {output_file}_dirs",
-                f"gobuster vhost -u {url} -w /usr/share/wordlists/SecLists/Discovery/DNS/subdomains-top1million-5000.txt -o {output_file}_vhosts",
-                f"sqlmap --url {url} --batch --random-agent --level 2 --output-dir {output_file}_sqlmap",
-                f"dirb {url} /usr/share/wordlists/dirb/common.txt -o {output_file}_dirb",
-                f"curl -I {url} | grep -i 'server\\|x-powered-by\\|x-'",
-                f"testssl.sh --quiet --color 0 {url.replace('http://', '').replace('https://', '').split('/')[0]} > {output_file}_ssl"
+        else:
+            audit_jobs = [
+                (["nikto", "-h", url, "-Format", "txt", "-o", f"{output_file}_nikto"], output_file),
+                (["gobuster", "dir", "-u", url, "-w", "/usr/share/wordlists/dirb/common.txt", "-o", f"{output_file}_dirs"], output_file),
+                (["gobuster", "vhost", "-u", url, "-w", "/usr/share/wordlists/SecLists/Discovery/DNS/subdomains-top1million-5000.txt", "-o", f"{output_file}_vhosts"], output_file),
+                (["sqlmap", "--url", url, "--batch", "--random-agent", "--level", "2", "--output-dir", f"{output_file}_sqlmap"], output_file),
+                (["dirb", url, "/usr/share/wordlists/dirb/common.txt", "-o", f"{output_file}_dirb"], output_file),
+                (["curl", "-I", url], output_file),
+                (["testssl.sh", "--quiet", "--color", "0", domain], f"{output_file}_ssl"),
             ]
-        
-        # Execute commands
-        for cmd in audit_commands:
-            await asyncio.create_subprocess_shell(
-                f"{cmd} >> {output_file} 2>&1 &",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-        
-        # Wait for completion
+
+        for argv, stdout_path in audit_jobs:
+            await _spawn_background_exec(argv, stdout_path=stdout_path)
+
         await asyncio.sleep(60)
         
         # Read results
@@ -2374,6 +2397,8 @@ async def port_scan(
 
     flags = SCAN_PRESETS[scan_type]
     if ports:
+        if not re.match(r'^[\d,\-T:U]+$', ports):
+            return [types.TextContent(type="text", text=f"Invalid ports format: {ports}. Use digits, commas, dashes (e.g. '80,443' or '1-1024' or 'T:80,U:53').")]
         flags = re.sub(r'-p[\S]*', '', flags).strip()
         flags += f" -p {ports}"
 
