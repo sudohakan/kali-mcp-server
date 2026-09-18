@@ -182,3 +182,7 @@ graphify-out/
 # Pentest reports and session data
 pentest-reports/
 sessions/
+.env.*
+*.pem
+*.key
+credentials*

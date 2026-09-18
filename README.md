@@ -15,13 +15,13 @@ Reconnaissance · Web Testing · Exploitation · Session Management · Evidence 
 [![CI](https://img.shields.io/github/actions/workflow/status/sudohakan/kali-mcp-server/ci.yml?style=flat-square&label=CI)](https://github.com/sudohakan/kali-mcp-server/actions)
 [![Stars](https://img.shields.io/github/stars/sudohakan/kali-mcp-server?style=flat-square)](https://github.com/sudohakan/kali-mcp-server/stargazers)
 
-[Quick Start](#quick-start) · [Tools](#tools) · [Architecture](#architecture) · [Contributing](#contributing)
+[Quick Start](#install) · [Tools](#usage) · [Architecture](#architecture) · [Contributing](#development)
 
 </div>
 
 ---
 
-## Why Kali MCP?
+## What it does
 
 Most security tools require manual operation, context switching, and output parsing. Kali MCP gives AI assistants direct access to **36 security tools** inside a Docker-containerized Kali Linux. Communicate via SSE or stdio, and let Claude run nmap scans, enumerate subdomains, crack hashes, generate payloads, and produce structured reports through natural language.
 
@@ -38,7 +38,7 @@ Most security tools require manual operation, context switching, and output pars
 
 ---
 
-## Quick Start
+## Install
 
 **1. Clone and build**
 
@@ -83,7 +83,7 @@ Ask Claude: *"Scan 192.168.1.0/24 for open ports"* or *"Run a deep recon on exam
 
 ---
 
-## Tools
+## Usage
 
 ### Reconnaissance and Scanning (6 tools)
 
@@ -224,7 +224,7 @@ The Dockerfile builds in 5 stages for optimal caching:
 
 ---
 
-## Contributing
+## Development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for Docker build workflow, how to add new tools, and the PR process.
 
