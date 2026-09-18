@@ -15,15 +15,15 @@ Reconnaissance · Web Testing · Exploitation · Session Management · Evidence 
 [![CI](https://img.shields.io/github/actions/workflow/status/sudohakan/kali-mcp-server/ci.yml?style=flat-square&label=CI)](https://github.com/sudohakan/kali-mcp-server/actions)
 [![Stars](https://img.shields.io/github/stars/sudohakan/kali-mcp-server?style=flat-square)](https://github.com/sudohakan/kali-mcp-server/stargazers)
 
-[Quick Start](#quick-start) · [Tools](#tools) · [Architecture](#architecture) · [Contributing](#contributing)
+[Quick Start](#install) · [Tools](#usage) · [Architecture](#architecture) · [Contributing](#development)
 
 </div>
 
 ---
 
-## Why Kali MCP?
+## What it does
 
-Most security tools require manual operation, context switching, and output parsing. Kali MCP gives AI assistants direct access to **36 security tools** inside a Docker-containerized Kali Linux. Communicate via SSE or stdio, and let Claude run nmap scans, enumerate subdomains, crack hashes, generate payloads, and produce structured reports through natural language.
+Kali MCP gives AI assistants direct access to **36 security tools** inside a Docker-containerized Kali Linux, so recon, scanning and reporting run through the agent instead of manual context switching. Communicate via SSE or stdio, and let Claude run nmap scans, enumerate subdomains, crack hashes, generate payloads, and produce structured reports through natural language.
 
 | What you get | Details |
 |:---|:---|
@@ -38,7 +38,7 @@ Most security tools require manual operation, context switching, and output pars
 
 ---
 
-## Quick Start
+## Install
 
 **1. Clone and build**
 
@@ -83,14 +83,14 @@ Ask Claude: *"Scan 192.168.1.0/24 for open ports"* or *"Run a deep recon on exam
 
 ---
 
-## Tools
+## Usage
 
 ### Reconnaissance and Scanning (6 tools)
 
 | Tool | Description |
 |:-----|:------------|
 | `port_scan` | Smart nmap wrapper with presets (quick, full, stealth, udp, service, aggressive) |
-| `dns_enum` | Comprehensive DNS enumeration with zone transfer attempts |
+| `dns_enum` | DNS enumeration with zone transfer attempts |
 | `network_discovery` | Multi-stage network reconnaissance (quick, comprehensive, stealth) |
 | `subdomain_enum` | Subdomain enumeration via subfinder, amass |
 | `recon_auto` | Automated multi-stage pipeline (DNS, ports, headers, SSL, exploits) |
@@ -102,7 +102,7 @@ Ask Claude: *"Scan 192.168.1.0/24 for open ports"* or *"Run a deep recon on exam
 |:-----|:------------|
 | `vulnerability_scan` | Automated vulnerability assessment (quick, comprehensive, web, network) |
 | `web_enumeration` | Application discovery and directory enumeration |
-| `web_audit` | Comprehensive web application security audit |
+| `web_audit` | Web application security audit |
 | `spider_website` | Web crawling with configurable depth and threads |
 | `form_analysis` | Discover and analyze web forms for vulnerabilities |
 | `header_analysis` | HTTP header security assessment |
@@ -224,7 +224,7 @@ The Dockerfile builds in 5 stages for optimal caching:
 
 ---
 
-## Contributing
+## Development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for Docker build workflow, how to add new tools, and the PR process.
 
@@ -232,6 +232,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for Docker build workflow, how to add new
 
 ## License
 
-[MIT](LICENSE) : Copyright 2026 Hakan Topcu
+[MIT](LICENSE) — Copyright 2026 Hakan Topcu
 
 > **Disclaimer:** This tool is intended for authorized security testing only. Always obtain proper written authorization before testing systems you do not own or operate.
